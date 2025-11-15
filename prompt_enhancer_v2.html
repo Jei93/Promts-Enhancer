@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Prompt Enhancer — Multi-model</title>
+  <meta name="description" content="Prompt Enhancer local — plantillas por modelo (GPT, Claude, Llama).">
+  <style>
+    :root{--bg:#0f1113;--panel:#121316;--muted:#9aa0a6;--btn:#2f3338;--accent:#5ea3ff}
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,Arial,sans-serif;background:var(--bg);color:#e6eef6}
+    .wrap{max-width:980px;margin:24px auto;padding:22px;background:linear-gradient(180deg,rgba(255,255,255,0.02),transparent);border-radius:12px;border:1px solid rgba(255,255,255,0.03)}
+    h1{margin:0 0 10px;font-size:22px}
+    p.lead{margin:0 0 14px;color:var(--muted)}
+    textarea{width:100%;min-height:120px;background:var(--panel);border:1px solid rgba(255,255,255,0.04);color:#e6eef6;padding:12px;border-radius:8px;resize:vertical;font-size:15px}
+    .controls{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center}
+    button{background:var(--btn);border:1px solid rgba(255,255,255,0.03);color:#e6eef6;padding:10px 12px;border-radius:8px;cursor:pointer}
+    button.primary{background:linear-gradient(90deg,var(--accent),#2e8eff);border:none;color:#071224}
+    select,input[type="checkbox"]{background:var(--panel);border:1px solid rgba(255,255,255,0.03);color:#e6eef6;padding:8px;border-radius:6px}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px}
+    label.small{display:block;color:var(--muted);font-size:13px;margin-bottom:6px}
+    ul#history{padding-left:0;margin-top:12px}
+    ul#history li{list-style:none;background:rgba(255,255,255,0.02);padding:10px;border-radius:8px;margin-bottom:8px;color:var(--muted);font-size:14px;cursor:default;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    footer{margin-top:20px;color:var(--muted);font-size:13px;display:flex;justify-content:space-between;align-items:center}
+    .muted{color:var(--muted);font-size:13px}
+    .opts{display:flex;gap:8px;align-items:center}
+    @media(max-width:760px){.row{grid-template-columns:1fr;}.wrap{margin:12px;padding:16px}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Prompt Enhancer — Multi-model</h1>
+    <p class="lead">Ahora puedes elegir el modelo destino (GPT/OpenAI, Claude/Anthropic, Llama/local). El enhancer genera prompts adaptados a las convenciones y mejores prácticas de cada modelo.</p>
+
+    <div style="display:flex;gap:12px;align-items:center;margin-bottom:8px">
+      <label class="small">Modelo destino</label>
+      <select id="selectModel" aria-label="Seleccionar modelo">
+        <option value="gpt">GPT / OpenAI (ChatGPT, GPT-4)</option>
+        <option value="claude">Claude / Anthropic</option>
+        <option value="llama">Llama / Local-API</option>
+        <option value="generic">Genérico</option>
+      </select>
+
+      <label class="small" style="margin-left:10px">Modo</label>
+      <select id="selectMode" aria-label="Seleccionar modo">
+        <option value="preciso">Preciso / Técnico</option>
+        <option value="creativo">Creativo</option>
+        <option value="conciso">Conciso</option>
+      </select>
+
+      <div class="opts" style="margin-left:auto">
+        <label class="muted"><input type="checkbox" id="chkCot"> Incluir cadena de pensamiento (CoT)</label>
+      </div>
+    </div>
+
+    <label class="small">Prompt original</label>
+    <textarea id="inputPrompt" placeholder="Escribe aquí tu prompt..."></textarea>
+
+    <div class="controls">
+      <button class="primary" id="btnEnhance">Mejorar</button>
+      <button id="btnEnhance3">Mejorar x3</button>
+      <button id="btnClear">Limpiar</button>
+      <button id="btnExport">Descargar .txt</button>
+      <button id="btnCopy">Copiar</button>
+    </div>
+
+    <div class="row">
+      <div>
+        <label class="small">Prompt adaptado</label>
+        <textarea id="outputPrompt" readonly placeholder="Aquí aparecerá el prompt adaptado para el modelo elegido..."></textarea>
+      </div>
+      <div>
+        <label class="small">Historial (local)</label>
+        <ul id="history"></ul>
+      </div>
+    </div>
+
+    <div style="margin-top:12px" class="muted">
+      <strong>Resumen rápido:</strong> Para GPT usa system + user sections; para Claude pon instrucciones explícitas en el mensaje del usuario; para Llama mantén instrucciones compactas y ejemplos. Estas diferencias están basadas en documentación públicamente disponible y papers de técnicas como Chain-of-Thought. (Ver ayuda interna para referencias)
+    </div>
+
+    <footer>
+      <div>
+        <strong>Prompt Enhancer v2</strong> — local.
+      </div>
+      <div>
+        <span class="muted">Hecho para iterar rápido</span>
+      </div>
+    </footer>
+  </div>
+
+<script>
+// ========================= Utilities =========================
+function sanitize(s){ return (s||'').trim().replace(/\\s+/g,' '); }
+function randomOf(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+function saveHistory(item){ const k='pe_v2_history'; const h=JSON.parse(localStorage.getItem(k)||'[]'); h.unshift({t:Date.now(),v:item}); localStorage.setItem(k, JSON.stringify(h.slice(0,80))); renderHistory(); }
+function renderHistory(){ const k='pe_v2_history'; const h=JSON.parse(localStorage.getItem(k)||'[]'); const el=document.getElementById('history'); el.innerHTML=''; h.forEach(it=>{ const li=document.createElement('li'); li.textContent = it.v.length>120? it.v.substring(0,120)+'…': it.v; li.title=it.v; li.addEventListener('click', ()=>{ document.getElementById('outputPrompt').value = it.v }); el.appendChild(li); }); }
+
+// ========================= Knowledge-informed templates =========================
+// Notes: sources: OpenAI prompt engineering guide, OpenAI cookbook, Anthropic docs, Llama docs, Chain-of-Thought paper.
+// (Se usan heurísticas extraídas de las referencias para adaptar el estilo al modelo)
+
+function templateForGPT(input, mode, includeCot){
+  // GPT favorece system messages, explicit instructions, few-shot examples and CoT for reasoning models.
+  const system = [
+    "Eres un asistente experto, preciso y conciso. Sigue estrictamente las instrucciones.",
+    "Eres un asistente experto en el área requerida; prioriza claridad, pasos y fuentes."
+  ];
+  const sys = randomOf(system);
+
+  // few-shot example small (concise)
+  const example = (mode==='conciso')? "" : `Ejemplo de salida (si aplica):\\n- Resultado: ...\\n`;
+
+  const cot = includeCot ? "\\nPor favor, piensa paso a paso antes de responder (detalla el razonamiento si es necesario)." : "";
+
+  return `SYSTEM: ${sys}
+
+USER: Reescribe y optimiza el siguiente prompt para GPT (Chat completions / GPT-4), maximizando claridad, formato y control del modelo.
+Objetivos:
+- Aclarar rol, contexto y formato de salida.
+- Especificar restricciones de longitud y estilo cuando proceda.
+- Proveer ejemplos si es útil.
+${cot}
+${example}
+Prompt original: "${input}"
+
+Devuelve SOLO la versión final del prompt que debería enviarse como 'user' a GPT. No expliques ni añadas notas.`;
+}
+
+function templateForClaude(input, mode, includeCot){
+  // Claude responde mejor con instrucciones explícitas en el mensaje del usuario; system high-level, user body detallado.
+  const role = randomOf([
+    "Eres un asistente colaborativo, honesto y explícito que puede admitir desconocimiento.",
+    "Eres un editor experto en instrucciones para IA; prioriza estructura y evidencia."
+  ]);
+  const cot = includeCot ? "\\nDivide el razonamiento en pasos claros antes de la respuesta final." : "";
+  const style = (mode==='creativo') ? "Usa un tono creativo y vívido." : (mode==='preciso') ? "Usa lenguaje técnico y preciso, pasos numerados." : "Sé claro y directo.";
+
+  return `INSTRUCCIONES: ${role}
+${style}
+
+Reescribe y optimiza el siguiente prompt para Claude, colocando las instrucciones principales en el mensaje del usuario (no dependas de comportamientos implícitos). Evita suposiciones; permite que el asistente diga 'No sé' si no puede verificar algo.
+${cot}
+
+Prompt original: "${input}"
+
+Devuelve SOLO el prompt final (texto que pegarías como input al modelo).`;
+}
+
+function templateForLlama(input, mode, includeCot){
+  // Llama / local: mejor mantener prompts compactos, con ejemplos y delimitadores; evita instrucciones excesivamente largas por limite de contexto.
+  const pre = "Instrucciones para Llama (local): se explícito, usa delimitadores y ejemplos breves.";
+  const cot = includeCot ? "\\nSi necesitas razonamiento, proporciona pasos concisos numerados en la respuesta." : "";
+  const examples = (mode==='preciso') ? "Ejemplo: Entrada -> Salida esperada: '...'\n" : "";
+
+  return `${pre}
+Reescribe y optimiza este prompt para un modelo Llama (local). Usa delimitadores como ### para separar secciones, incluye ejemplos breves y pide formato exacto.
+${cot}
+
+### PROMPT ORIGINAL ###
+${input}
+
+### PROMPT OPTIMIZADO ###
+Devuelve SOLO el bloque optimizado.`;
+}
+
+function templateGeneric(input, mode, includeCot){
+  const cot = includeCot ? "\\nSi aplica, pide al modelo que piense paso a paso." : "";
+  return `Eres un asistente que debe optimizar prompts. Reescribe el prompt para mejorar claridad, formato y control del output. ${cot}
+
+Prompt original: "${input}"
+
+Devuelve SOLO el prompt final optimizado.`;
+}
+
+// Master builder
+function buildEnhanced(input, model, mode, includeCot){
+  input = sanitize(input);
+  if(!input) return "";
+  if(model==='gpt') return templateForGPT(input, mode, includeCot);
+  if(model==='claude') return templateForClaude(input, mode, includeCot);
+  if(model==='llama') return templateForLlama(input, mode, includeCot);
+  return templateGeneric(input, mode, includeCot);
+}
+
+// ========================= UI bindings =========================
+document.getElementById('btnEnhance').addEventListener('click', ()=>{
+  const input = document.getElementById('inputPrompt').value;
+  const model = document.getElementById('selectModel').value;
+  const mode = document.getElementById('selectMode').value;
+  const includeCot = document.getElementById('chkCot').checked;
+  const out = buildEnhanced(input, model, mode, includeCot);
+  if(!out) return;
+  document.getElementById('outputPrompt').value = out;
+  saveHistory(out);
+});
+
+document.getElementById('btnEnhance3').addEventListener('click', ()=>{
+  const input = document.getElementById('inputPrompt').value;
+  const model = document.getElementById('selectModel').value;
+  const mode = document.getElementById('selectMode').value;
+  const includeCot = document.getElementById('chkCot').checked;
+  if(!sanitize(input)) return;
+  const parts = [];
+  for(let i=0;i<3;i++){ parts.push(buildEnhanced(input, model, mode, includeCot)); }
+  document.getElementById('outputPrompt').value = parts.join("\\n\\n--- VARIACIÓN ---\\n\\n");
+  saveHistory(parts[0]);
+});
+
+document.getElementById('btnClear').addEventListener('click', ()=>{
+  document.getElementById('inputPrompt').value='';
+  document.getElementById('outputPrompt').value='';
+});
+
+document.getElementById('btnCopy').addEventListener('click', ()=>{
+  navigator.clipboard.writeText(document.getElementById('outputPrompt').value || '');
+});
+
+document.getElementById('btnExport').addEventListener('click', ()=>{
+  const text = document.getElementById('outputPrompt').value || '';
+  const blob = new Blob([text], {type:'text/plain'});
+  const url = URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download='prompt_adaptado.txt'; a.click();
+  URL.revokeObjectURL(url);
+});
+
+// init
+renderHistory();
+</script>
+</body>
+</html>
